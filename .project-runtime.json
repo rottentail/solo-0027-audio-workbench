@@ -5,6 +5,7 @@
   {"workflow_id":"inspect","command":"python3 -m audio_workbench.smoke inspect"},
   {"workflow_id":"clip","command":"python3 -m audio_workbench.smoke clip"},
   {"workflow_id":"mix","command":"python3 -m audio_workbench.smoke mix"},
-  {"workflow_id":"media-jobs","command":"python3 -m audio_workbench.job_smoke"}
+  {"workflow_id":"media-jobs","command":"python3 -m audio_workbench.job_smoke"},
+  {"workflow_id":"timeline","command":"python3 -m audio_workbench.job_smoke"}
  ]
 }

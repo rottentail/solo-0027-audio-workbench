@@ -16,10 +16,7 @@ from contextlib import contextmanager
 from .media import PRESETS, command
 
 
-def validate_request(body):
-    if not isinstance(body, dict) or body.get('preset') not in PRESETS:
-        raise ValueError('preset must be mp4 or audio')
-    source = body.get('source')
+def decode_source(source):
     if not isinstance(source, str):
         raise ValueError('source must be base64 text')
     try:
@@ -28,13 +25,34 @@ def validate_request(body):
         raise ValueError('invalid base64 source') from exc
     if not data or len(data) > 5 * 1024 * 1024:
         raise ValueError('source must contain at most 5 MiB')
+    return data
+
+
+def interval(body):
     start, duration = body.get('start', 0), body.get('duration')
     for name, value, maximum in [('start', start, 3600), ('duration', duration, 60)]:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or value > maximum:
             raise ValueError(f'{name} must be a finite number between 0 and {maximum}')
     if duration == 0:
         raise ValueError('duration must be positive')
-    return data, {'preset': body['preset'], 'start': start, 'duration': duration}
+    return {'start': start, 'duration': duration}
+
+
+def validate_request(body):
+    if not isinstance(body, dict) or body.get('preset') not in (*PRESETS, 'timeline'):
+        raise ValueError('preset must be mp4, audio or timeline')
+    if body['preset'] == 'timeline':
+        segments = body.get('segments')
+        if not isinstance(segments, list) or not 1 <= len(segments) <= 8 or any(not isinstance(s, dict) for s in segments):
+            raise ValueError('segments must contain 1 to 8 objects')
+        sources = [decode_source(segment.get('source')) for segment in segments]
+        spans = [interval(segment) for segment in segments]
+        if any(span['duration'] < 1 / 30 for span in spans):
+            raise ValueError('each timeline segment must be at least one output frame')
+        if sum(len(data) for data in sources) > 5 * 1024 * 1024 or sum(s['duration'] for s in spans) > 60:
+            raise ValueError('timeline exceeds source size or duration limit')
+        return sources, {'preset': 'timeline', 'segments': spans}
+    return [decode_source(body.get('source'))], {'preset': body['preset'], **interval(body)}
 
 
 class JobManager:
@@ -71,18 +89,21 @@ class JobManager:
             db.close()
 
     def submit(self, body):
-        data, options = validate_request(body)
+        sources, options = validate_request(body)
         job_id = uuid.uuid4().hex
         folder = self.root / job_id
         folder.mkdir()
         try:
-            (folder / 'source').write_bytes(data)
+            for index, data in enumerate(sources):
+                name = f'source-{index}' if options['preset'] == 'timeline' else 'source'
+                (folder / name).write_bytes(data)
             now = time.time()
             with self.connect() as db:
                 db.execute('INSERT INTO jobs (id,status,options,created,updated) VALUES (?, ?, ?, ?, ?)',
                            (job_id, 'queued', json.dumps(options), now, now))
         except Exception:
-            (folder / 'source').unlink(missing_ok=True)
+            for path in folder.iterdir():
+                path.unlink()
             folder.rmdir()
             raise
         self.wake.set()

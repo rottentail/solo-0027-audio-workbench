@@ -30,6 +30,32 @@ def clip(audio, start, end, gain):
     return Audio(audio.rate, audio.channels, array.array('h', samples))
 
 
+def conform(audio, rate, channels):
+    if type(rate) is not int or not 8000 <= rate <= 48000 or rate < audio.rate:
+        raise ValueError('sample rate must be an integer from the source rate through 48000')
+    if type(channels) is not int or channels not in (1, 2):
+        raise ValueError('channels must be 1 or 2')
+    frames = round(audio.frames * rate / audio.rate)
+    samples = array.array('h')
+    for frame in range(frames):
+        position = frame * audio.rate / rate
+        first = min(int(position), audio.frames - 1)
+        second = min(first + 1, audio.frames - 1)
+        fraction = position - first
+        values = []
+        for channel in range(audio.channels):
+            left = audio.samples[first * audio.channels + channel]
+            right = audio.samples[second * audio.channels + channel]
+            values.append(left + (right - left) * fraction)
+        if channels == 1:
+            samples.append(saturate(sum(values) / len(values)))
+        elif audio.channels == 1:
+            samples.extend((saturate(values[0]), saturate(values[0])))
+        else:
+            samples.extend(saturate(value) for value in values)
+    return Audio(rate, channels, samples)
+
+
 def mix(tracks):
     reference = tracks[0][0]
     for audio, offset, gain in tracks:

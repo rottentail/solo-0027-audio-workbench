@@ -40,6 +40,12 @@ def run(which):
                 rendered = decode(base64.b64decode(result['audio']))
                 assert status == 200 and rendered.frames == 12000 and rendered.samples[4000] == 32767
                 assert call(which, {'tracks': []})[0] == 400
+                status, result = call(which, {'tracks': [{'audio': encoded}],
+                                              'format': {'sample_rate': 16000, 'channels': 2}})
+                rendered = decode(base64.b64decode(result['audio']))
+                assert status == 200 and rendered.frames == 16000 and rendered.channels == 2
+                assert rendered.samples[0] == 10000 and rendered.samples[1] == 10000 and rendered.samples[2] == 0
+                assert call(which, {'tracks': [{'audio': encoded}], 'format': {'sample_rate': 7999, 'channels': 1}})[0] == 400
         finally:
             server.shutdown()
             thread.join()

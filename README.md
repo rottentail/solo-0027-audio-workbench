@@ -19,13 +19,14 @@ python -m audio_workbench.server --host 127.0.0.1 --port 8765 --data-dir ./media
 
 * `/inspect`: `{"audio":"..."}`，返回采样率、声道数、帧数、时长和归一化峰值。
 * `/clip`: `{"audio":"...","start":0.1,"end":1.2,"gain":1.0}`，时间单位为秒，区间左闭右开，返回 `audio` 和 `properties`。
-* `/mix`: `{"tracks":[{"audio":"...","offset":0,"gain":1}]}`，最多 8 轨；格式必须相同，偏移单位为秒，输出最长 30 秒。
+* `/mix`: `{"tracks":[{"audio":"...","offset":0,"gain":1}]}`，最多 8 轨；默认格式必须相同，偏移单位为秒，输出最长 30 秒。可附加 `"format":{"sample_rate":48000,"channels":2}`，先对每轨做线性插值升采样与单、双声道转换；目标采样率不得低于任一源采样率。
 
 增益范围为 0–4，混音结果饱和到 16 位范围。错误返回 HTTP 400 和 `{"error":"..."}`，未知路径返回 404。输出的 `audio` 可 base64 解码保存为 WAV。
 
 ### 持久化媒体任务
 
 * `POST /jobs`: `{"source":"base64 媒体内容","preset":"mp4","start":0,"duration":5}`。`preset` 可选 `mp4`（H.264/AAC）或 `audio`（WAV），源文件最大 5 MiB，时长最多 60 秒；返回 HTTP 202 和任务对象。
+* 时间线使用相同入口：`{"preset":"timeline","segments":[{"source":"base64 媒体内容","start":0,"duration":1}, {"source":"base64 媒体内容","start":2,"duration":1}]}`。每段需包含视频和音频，最多 8 段，总源数据不超过 5 MiB，总时长不超过 60 秒，单段不少于 1/30 秒。输出统一为 640×360、30 fps、48 kHz 双声道；画面按比例缩放并补黑边，片段不足时末帧和静音补齐。音轨或视频流缺失会使任务失败。
 * `GET /jobs/{id}` 查询状态和错误；`GET /jobs/{id}/result` 在成功后返回 base64 的 `audio_video` 和 SHA-256。
 * `POST /jobs/{id}/cancel` 请求取消，提交空 JSON 对象。排队任务立即取消，执行中的任务终止子进程后变为取消状态；已结束的任务无法取消。
 

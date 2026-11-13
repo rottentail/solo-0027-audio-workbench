@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import wave
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,6 +23,14 @@ def main():
         subprocess.run([ffmpeg, '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10',
                         '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=8000', '-t', '1',
                         '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-y', str(source)],
+                       check=True, timeout=30)
+        other = Path(tmp) / 'other.mp4'
+        subprocess.run([ffmpeg, '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=240x160:rate=24',
+                        '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=44100', '-t', '1',
+                        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-y', str(other)],
+                       check=True, timeout=30)
+        silent = Path(tmp) / 'silent.mp4'
+        subprocess.run([ffmpeg, '-loglevel', 'error', '-i', str(source), '-an', '-c:v', 'copy', '-y', str(silent)],
                        check=True, timeout=30)
         manager = JobManager(Path(tmp) / 'data', workers=2)
         with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
@@ -61,6 +70,28 @@ def main():
                     rendered.write_bytes(base64.b64decode(result['audio_video']))
                     subprocess.run([ffmpeg, '-v', 'error', '-i', str(rendered), '-f', 'null', '-'],
                                    check=True, timeout=30)
+                second = base64.b64encode(other.read_bytes()).decode()
+                status, timeline = call('/jobs', {'preset': 'timeline', 'segments': [
+                    {'source': encoded, 'start': .1, 'duration': .4},
+                    {'source': second, 'start': .2, 'duration': .5}]})
+                assert status == 202
+                completed = finish(timeline['id'])
+                assert completed['status'] == 'succeeded', completed
+                timeline_path = Path(tmp) / 'timeline.mp4'
+                timeline_path.write_bytes(base64.b64decode(call('/jobs/' + timeline['id'] + '/result')[1]['audio_video']))
+                frames = imageio_ffmpeg.read_frames(str(timeline_path))
+                metadata = next(frames)
+                count = sum(1 for _ in frames)
+                assert metadata['size'] == (640, 360) and 26 <= count <= 28, (metadata, count)
+                audio_path = Path(tmp) / 'timeline.wav'
+                subprocess.run([ffmpeg, '-loglevel', 'error', '-i', str(timeline_path), '-vn', '-c:a', 'pcm_s16le', '-y', str(audio_path)], check=True, timeout=30)
+                with wave.open(str(audio_path)) as audio:
+                    assert audio.getframerate() == 48000 and audio.getnchannels() == 2
+                    assert abs(audio.getnframes() / audio.getframerate() - count / 30) < .06
+                assert call('/jobs', {'preset': 'timeline', 'segments': []})[0] == 400
+                status, missing_audio = call('/jobs', {'preset': 'timeline', 'segments': [
+                    {'source': base64.b64encode(silent.read_bytes()).decode(), 'start': 0, 'duration': .5}]})
+                assert status == 202 and finish(missing_audio['id'])['status'] == 'failed'
                 status, job = call('/jobs', {'source': base64.b64encode(b'invalid').decode(), 'preset': 'audio', 'duration': 1})
                 assert status == 202 and finish(job['id'])['status'] == 'failed'
                 assert call('/jobs', {'source': encoded, 'preset': 'audio', 'duration': -1})[0] == 400
