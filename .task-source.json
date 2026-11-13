@@ -1,0 +1,16 @@
+{
+ "task_source_schema_version":1,
+ "entities":[
+  {"id":"audio","label":"PCM 音频素材","relations":["track.references.audio"],"invariants":["16 位 PCM，声道数为 1 或 2"]},
+  {"id":"track","label":"混音轨道","relations":["track.references.audio"],"invariants":["混音中的采样率和声道数一致"]},
+  {"id":"render","label":"处理结果","relations":["render.derived_from.audio"],"invariants":["样本值保持在 16 位范围"]}
+ ],
+ "state_machines":[{"subject":"render","states":["received","validated","rendered","rejected"],"transitions":["received->validated","received->rejected","validated->rendered","validated->rejected"],"invariants":["无效请求不会产生结果"]}],
+ "capability_families":[{"family":"媒体解析与验证","occupied_by":["inspect"],"available":true},{"family":"片段渲染","occupied_by":["clip"],"available":true},{"family":"混音合成","occupied_by":["mix"],"available":true}],
+ "extension_seams":[{"id":"formats","anchor":"waveio decode","entry":"decode","distinct_outcome":"支持额外输入编码","mechanism":"format_validation"},{"id":"effects","anchor":"processing clip","entry":"clip","distinct_outcome":"提供更多音频效果","mechanism":"sample_transform"}],
+ "tension_points":[
+  {"workflow_id":"inspect","description":"读取头部与验证实际样本长度必须一致","observable_failure":"截断素材被接受或时长错误"},
+  {"workflow_id":"clip","description":"时间换算和声道帧边界需一致","observable_failure":"输出区间偏移或声道错位"},
+  {"workflow_id":"mix","description":"偏移和叠加需按帧对齐且饱和","observable_failure":"轨道错位或数值回绕"}
+ ]
+}

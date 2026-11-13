@@ -1,0 +1,15 @@
+{
+  "schema_version": 1, "name": "solo-0027-audio-workbench", "project_shape": "backend",
+  "modules": [
+    {"id":"server","path":"audio_workbench/server.py","responsibility":"HTTP request boundary"},
+    {"id":"service","path":"audio_workbench/service.py","responsibility":"request validation and orchestration"},
+    {"id":"waveio","path":"audio_workbench/waveio.py","responsibility":"PCM WAV decoding and encoding"},
+    {"id":"processing","path":"audio_workbench/processing.py","responsibility":"audio measurements and transformations"}
+  ],
+  "complexity":{"mechanisms":["error_propagation","resource_lifecycle"]},
+  "workflows":[
+    {"id":"inspect","name":"Inspect audio","entry":"POST /inspect","steps":["decode and validate WAV","calculate duration and peak"],"success":"returns audio properties","failure":"returns a validation error","verification":"HTTP validation reads generated PCM","module_ids":["server","service","waveio","processing"]},
+    {"id":"clip","name":"Render clip","entry":"POST /clip","steps":["validate interval and gain","slice and render PCM"],"success":"returns a WAV clip","failure":"rejects invalid intervals","verification":"HTTP check decodes rendered clip","module_ids":["server","service","waveio","processing"]},
+    {"id":"mix","name":"Mix tracks","entry":"POST /mix","steps":["validate compatible tracks","align and sum samples","encode output"],"success":"returns mixed WAV","failure":"rejects incompatible formats","verification":"HTTP check verifies mixed samples","module_ids":["server","service","waveio","processing"]}
+  ]
+}
