@@ -1,14 +1,17 @@
 # Audio Workbench
 
-Python 标准库实现的 PCM 音频处理 HTTP 服务，提供素材检测、片段渲染与多轨混合。需要 Python 3.10 或更新版本，无第三方依赖。
+Python 音视频处理 HTTP 服务，提供 PCM 音频处理和持久化媒体转码任务。需要 Python 3.10 或更新版本，媒体引擎由 `imageio-ffmpeg` 提供。
 
 ## 启动
 
 ```sh
-python3 -m audio_workbench.server --host 127.0.0.1 --port 8765
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python -m audio_workbench.server --host 127.0.0.1 --port 8765 --data-dir ./media-data
 ```
 
-默认只监听本机；服务没有身份验证，勿直接暴露到不可信网络。没有环境变量配置。
+默认只监听本机；服务没有身份验证，勿直接暴露到不可信网络。`AUDIO_WORKBENCH_DATA` 可设置数据目录，`--data-dir` 优先；`--workers` 为 1–4，默认 2。一个数据目录只允许一个服务进程使用。
 
 ## 接口
 
@@ -20,6 +23,14 @@ python3 -m audio_workbench.server --host 127.0.0.1 --port 8765
 
 增益范围为 0–4，混音结果饱和到 16 位范围。错误返回 HTTP 400 和 `{"error":"..."}`，未知路径返回 404。输出的 `audio` 可 base64 解码保存为 WAV。
 
+### 持久化媒体任务
+
+* `POST /jobs`: `{"source":"base64 媒体内容","preset":"mp4","start":0,"duration":5}`。`preset` 可选 `mp4`（H.264/AAC）或 `audio`（WAV），源文件最大 5 MiB，时长最多 60 秒；返回 HTTP 202 和任务对象。
+* `GET /jobs/{id}` 查询状态和错误；`GET /jobs/{id}/result` 在成功后返回 base64 的 `audio_video` 和 SHA-256。
+* `POST /jobs/{id}/cancel` 请求取消，提交空 JSON 对象。排队任务立即取消，执行中的任务终止子进程后变为取消状态；已结束的任务无法取消。
+
+任务和源文件保存在数据目录。进程重启后排队任务继续执行，原来执行中的任务标记为失败并清理临时结果；调用者可重新提交。产物先写入临时文件再保存，并在读取时校验摘要。服务不自动删除历史素材和产物，请在服务停止后自行维护数据目录。
+
 ## 验证与结构
 
 ```sh
@@ -27,8 +38,9 @@ python3 -m compileall -q audio_workbench
 python3 -m audio_workbench.smoke inspect
 python3 -m audio_workbench.smoke clip
 python3 -m audio_workbench.smoke mix
+python3 -m audio_workbench.job_smoke
 ```
 
-`server.py` 负责 HTTP，`service.py` 编排和校验，`waveio.py` 读写音频，`processing.py` 处理样本；`smoke.py` 经真实 HTTP 路径执行有限检查。自动化测试套件有意延后，由后续工程任务补充单元测试和边界覆盖。
+`server.py` 负责 HTTP，`service.py` 编排和校验，`waveio.py` 读写音频，`processing.py` 处理样本，`jobs.py` 管理数据库和执行器；两个 smoke 模块经真实 HTTP 路径执行有限检查。自动化测试套件有意延后，由后续工程任务补充单元测试和边界覆盖。
 
-不提供视频解码、压缩音频格式、重采样或持久化；这些能力需要额外媒体依赖和设计。
+不提供身份认证、媒体探测接口、自动重试、进度推送或分布式执行。
